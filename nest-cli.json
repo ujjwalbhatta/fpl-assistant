@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/fpl-assistant/src",
+  "compilerOptions": {
+    "deleteOutDir": true,
+    "webpack": true,
+    "tsConfigPath": "apps/fpl-assistant/tsconfig.app.json"
+  },
+  "monorepo": true,
+  "root": "apps/fpl-assistant",
+  "projects": {
+    "ai-engine": {
+      "type": "application",
+      "root": "apps/ai-engine",
+      "entryFile": "main",
+      "sourceRoot": "apps/ai-engine/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/ai-engine/tsconfig.app.json"
+      }
+    },
+    "alert-service": {
+      "type": "application",
+      "root": "apps/alert-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/alert-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/alert-service/tsconfig.app.json"
+      }
+    },
+    "etl-job": {
+      "type": "application",
+      "root": "apps/etl-job",
+      "entryFile": "main",
+      "sourceRoot": "apps/etl-job/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/etl-job/tsconfig.app.json"
+      }
+    },
+    "fpl-assistant": {
+      "type": "application",
+      "root": "apps/fpl-assistant",
+      "entryFile": "main",
+      "sourceRoot": "apps/fpl-assistant/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/fpl-assistant/tsconfig.app.json"
+      }
+    },
+    "ingestion-service": {
+      "type": "application",
+      "root": "apps/ingestion-service",
+      "entryFile": "main",
+      "sourceRoot": "apps/ingestion-service/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/ingestion-service/tsconfig.app.json"
+      }
+    },
+    "stream-processor": {
+      "type": "application",
+      "root": "apps/stream-processor",
+      "entryFile": "main",
+      "sourceRoot": "apps/stream-processor/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/stream-processor/tsconfig.app.json"
+      }
+    }
+  }
+}
