@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/ujjwalbhatta/FPL/fpl-assistant/*.txt)",
+      "Read(//Users/ujjwalbhatta/FPL/**)",
+      "Bash(npx ts-node:*)"
+    ]
+  }
+}
