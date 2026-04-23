@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from './prisma.service';
 import axios from 'axios';
+import { KafkaProducerService } from './kafka.producer.service';
 
 const FPL_URL = 'https://fantasy.premierleague.com/api/bootstrap-static/';
 
@@ -9,7 +10,10 @@ const FPL_URL = 'https://fantasy.premierleague.com/api/bootstrap-static/';
 export class IngestionService {
   private readonly logger = new Logger(IngestionService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private kafkaProducer: KafkaProducerService,
+  ) {}
 
   @Cron('0 * * * *')
   async pollFplApi() {
@@ -40,6 +44,12 @@ export class IngestionService {
         this.logger.log(
           `Price change: player ${p.id} ${dbPlayer.nowCost} → ${p.now_cost}`,
         );
+
+        await this.kafkaProducer.publish('fpl.price-change', {
+          playerId: p.id,
+          oldCost: dbPlayer.nowCost,
+          newCost: p.now_cost,
+        });
       }
     }
   }
