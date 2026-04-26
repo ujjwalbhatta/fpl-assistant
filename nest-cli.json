@@ -46,6 +46,15 @@
         "tsConfigPath": "apps/fpl-assistant/tsconfig.app.json"
       }
     },
+    "etl-job": {
+      "type": "application",
+      "root": "apps/etl-job",
+      "entryFile": "main",
+      "sourceRoot": "apps/etl-job/src",
+      "compilerOptions": {
+        "tsConfigPath": "apps/etl-job/tsconfig.app.json"
+      }
+    },
     "ingestion-service": {
       "type": "application",
       "root": "apps/ingestion-service",

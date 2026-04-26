@@ -7,14 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────
-// ENUMS
-// Using enums instead of raw strings prevents
-// bad data from ever entering the DB
-// ─────────────────────────────────────────────
-
-// FPL player availability status
-// a=available, d=doubtful, i=injured, s=suspended, u=unavailable
 enum PlayerStatus {
   AVAILABLE
   DOUBTFUL
@@ -23,244 +15,61 @@ enum PlayerStatus {
   UNAVAILABLE
 }
 
-// Whether a team has a blank, single, or double gameweek
 enum GameweekStatusType {
-  BLANK   // no fixture this GW — avoid owning these players
-  SINGLE  // normal one game
-  DOUBLE  // plays twice — premium ownership week
+  BLANK
+  SINGLE
+  DOUBLE
 }
 
-// FPL chips — one-time-use boosts
-enum ChipType {
-  WILDCARD        // unlimited free transfers for one GW
-  FREE_HIT        // temporary wildcard, squad resets next GW
-  BENCH_BOOST     // bench players score points too
-  TRIPLE_CAPTAIN  // captain scores 3x instead of 2x
-  NONE            // recommendation: hold your chips
-}
-
-// ─────────────────────────────────────────────
-// TEAM
-// 20 Premier League teams
-// Strength ratings come from FPL bootstrap-static
-// Used to calculate fixture difficulty scores
-// ─────────────────────────────────────────────
 model Team {
-  id               Int    @id  // FPL's own team ID (1-20, stable)
-  name             String
-  shortName        String
-
-  // Overall team strength 1-5
-  strength         Int
-
-  // Separate home/away ratings because teams play very differently
-  // e.g. Man City strength 5 home but 4 away — matters for FDR calc
-  strengthAttackH  Int
-  strengthAttackA  Int
-  strengthDefenceH Int
-  strengthDefenceA Int
+  id        Int    @id
+  name      String
+  shortName String
 
   players          Player[]
-  homeFixtures     Fixture[]           @relation("HomeTeam")
-  awayFixtures     Fixture[]           @relation("AwayTeam")
+  homeFixtures     Fixture[]            @relation("HomeTeam")
+  awayFixtures     Fixture[]            @relation("AwayTeam")
   gameweekStatuses TeamGameweekStatus[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
-// ─────────────────────────────────────────────
-// TEAM GAMEWEEK STATUS
-// Tracks whether each team has a Blank (BGW), Single, or Double (DGW)
-// for every gameweek. Critical for chip and transfer advice.
-//
-// WHY THIS EXISTS:
-// In DGWs, a player can score 20+ pts in one week (plays twice)
-// In BGWs, a player scores 0 pts (no match) — massive downside
-// Claude needs this to say "don't sell Salah — he has a DGW next week"
-//
-// Populated by stream-processor consuming fixture events from Kafka
-// ─────────────────────────────────────────────
-model TeamGameweekStatus {
-  id           Int                @id @default(autoincrement())
-  teamId       Int
-  team         Team               @relation(fields: [teamId], references: [id])
-  gameweek     Int
-  status       GameweekStatusType @default(SINGLE)
-  fixtureCount Int                @default(1) // 0=BGW, 1=normal, 2=DGW
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([teamId, gameweek])
-  @@index([gameweek]) // ETL and AI engine query by GW constantly
-}
-
-// ─────────────────────────────────────────────
-// PLAYER
-// The main data model — ~700 players per season
-// Large because FPL exposes a lot and Claude needs rich context
-// All fields come from FPL bootstrap-static unless noted as "calculated by us"
-//
-// FIELD GROUPS (why each group matters):
-//
-// PRICING: detect price rises early → buy before the rise, sell before the fall
-// AVAILABILITY: never recommend an injured/suspended player
-// xG/xA: better predictor than actual goals — high xG with 0 goals = "overdue"
-// SET PIECES: penalty taker worth +3pts per goal → critical for captaincy advice
-// DEFENSIVE CONTRIBUTIONS: new 2025/26 scoring rule — most tools ignore this
-// CALCULATED: valueIndex and fixtureScore are our own signals fed into Claude
-// ─────────────────────────────────────────────
 model Player {
-  id        Int    @id  // FPL element ID — stable across season
-  webName   String      // display name e.g. "Salah"
-  firstName String
-  lastName  String
+  id      Int    @id
+  webName String
 
-  // 1=GK, 2=DEF, 3=MID, 4=FWD
-  position Int
+  position Int  // 1=GK 2=DEF 3=MID 4=FWD
+  teamId   Int
+  team     Team @relation(fields: [teamId], references: [id])
 
-  teamId Int
-  team   Team @relation(fields: [teamId], references: [id])
+  nowCost          Int   @default(0)
+  form             Float @default(0)
+  totalPoints      Int   @default(0)
+  pointsPerGame    Float @default(0)
+  selectedByPercent Float @default(0)
+  transfersInEvent Int   @default(0)
 
-  // ── Pricing ──
-  // Stored in tenths: nowCost=100 means £10.0m
-  // costChangeStart: how much price moved since season kick-off
-  // costChangeEvent: change since last GW — detects active price movement
-  nowCost         Int @default(0)
-  costChangeStart Int @default(0)
-  costChangeEvent Int @default(0)
-
-  // ── Availability ──
-  // AVAILABLE is the default — most players are fit
-  // chanceOfPlayingNextRound: null means assumed 100% (FPL doesn't set it)
-  // news: e.g. "Knock — 75% chance of playing next round"
   status                   PlayerStatus @default(AVAILABLE)
   chanceOfPlayingNextRound Int?
-  chanceOfPlayingThisRound Int?
   news                     String?
-  newsAdded                DateTime?
 
-  // ── Ownership & Transfers ──
-  // selectedByPercent: % of all FPL managers who own this player
-  // transfersInEvent/OutEvent: net transfer flow THIS gameweek
-  // High transfersInEvent = price rise incoming — buy signal
-  selectedByPercent Float @default(0)
-  transfersIn       Int   @default(0)
-  transfersOut      Int   @default(0)
-  transfersInEvent  Int   @default(0)
-  transfersOutEvent Int   @default(0)
+  goalsScored  Int   @default(0)
+  assists      Int   @default(0)
+  cleanSheets  Int   @default(0)
 
-  // ── Points & Form ──
-  // form: FPL's own rolling 5-GW average — quick health check
-  // pointsPerGame: season average — more stable than form
-  totalPoints   Int   @default(0)
-  eventPoints   Int   @default(0)
-  form          Float @default(0)
-  pointsPerGame Float @default(0)
+  ictIndex        Float @default(0)
+  expectedGIPer90 Float @default(0)
 
-  // ── Minutes ──
-  // startsCount matters more than minutesPlayed for rotation risk
-  // A player with 80% starts is reliable; one with 60% is risky
-  minutesPlayed Int @default(0)
-  startsCount   Int @default(0)
+  penaltiesOrder Int?
 
-  // ── Attacking Stats ──
-  goalsScored Int @default(0)
-  assists     Int @default(0)
-  yellowCards Int @default(0)
-  redCards    Int @default(0)
-  bonusPoints Int @default(0)
-  bps         Int @default(0)
-
-  // ── Defensive Stats ──
-  cleanSheets      Int @default(0)
-  goalsConceded    Int @default(0)
-  ownGoals         Int @default(0)
-  penaltiesSaved   Int @default(0)
-  penaltiesMissed  Int @default(0)
-  saves            Int @default(0)
-
-  // ── Defensive Contributions (NEW 2025/26 scoring rule) ──
-  // DEF: 10 CBIT = +2pts
-  // MID/FWD: 12 CBIRT (includes recoveries) = +2pts
-  // Most FPL tools don't track this yet — our differentiator
-  // Claude can use dcHitRate to say "Palmer hits the threshold 70% of games"
-  clearancesBlocksInterceptions Int   @default(0)
-  defensiveContributions        Int   @default(0)
-  defensiveContributionPer90    Float @default(0)
-
-  // ── ICT Index (FPL proprietary) ──
-  // Influence = how much impact they had on the match
-  // Creativity = how many chances they created
-  // Threat = how much goal danger they posed
-  // ICT = combined score — useful for identifying under-owned players
-  influence     Float @default(0)
-  creativity    Float @default(0)
-  threat        Float @default(0)
-  ictIndex      Float @default(0)
-  influenceRank Int?
-  creativityRank Int?
-  threatRank    Int?
-  ictIndexRank  Int?
-
-  // ── Expected Stats (xG / xA) ──
-  // CRITICAL for transfer advice:
-  // High xG with 0 actual goals = "overdue" — strong buy signal
-  // Per90 versions control for minutes played — fair comparison across players
-  expectedGoals            Float @default(0)
-  expectedAssists          Float @default(0)
-  expectedGoalInvolvements Float @default(0)
-  expectedGoalsConceded    Float @default(0)
-  expectedGoalsPer90       Float @default(0)
-  expectedAssistsPer90     Float @default(0)
-  expectedGIPer90          Float @default(0)
-  expectedGCPer90          Float @default(0)
-
-  // ── Per 90 Stats ──
-  savesPer90          Float @default(0)
-  cleanSheetsPer90    Float @default(0)
-  goalsConcededPer90  Float @default(0)
-  startsPer90         Float @default(0)
-
-  // ── Set Piece Duties ──
-  // 1 = first taker, 2 = second taker, null = not a taker
-  // Penalty taker is worth an extra ~3pts every time they score
-  // Corner taker gets assists and indirect chances — big captaincy factor
-  cornersOrder          Int?
-  directFreekicksOrder  Int?
-  penaltiesOrder        Int?
-
-  // ── Calculated by us (not from FPL API) ──
-  // valueIndex = form / price — cheap high-form players score high
-  // fixtureScore = avg FDR next 3 GWs (lower = easier fixtures ahead)
-  // These two signals go directly into the Claude prompt
-  valueIndex    Float @default(0)
-  fixtureScore  Float @default(0)
+  valueIndex   Float @default(0)
+  fixtureScore Float @default(0)
 
   priceChanges  PriceHistory[]
   gameweekStats PlayerGameweekStat[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([teamId])
   @@index([position])
-  @@index([status])         // fast filter for injured/unavailable players
-  @@index([valueIndex])     // ETL sorts by this for top picks
-  @@index([fixtureScore])   // AI engine filters by fixture ease
+  @@index([status])
 }
 
-// ─────────────────────────────────────────────
-// PRICE HISTORY
-// Every detected price change gets a row here
-// Logged by ingestion service when nowCost changes between polls
-//
-// WHY THIS EXISTS:
-// FPL prices change based on net transfer activity
-// Tracking history lets us show "rose 3 times this season = sell signal"
-// Also feeds into priceRiseCount in PlayerTrend
-// ─────────────────────────────────────────────
 model PriceHistory {
   id        Int      @id @default(autoincrement())
   playerId  Int
@@ -269,74 +78,29 @@ model PriceHistory {
   newCost   Int
   changedAt DateTime @default(now())
 
-  @@index([playerId, changedAt]) // price trend queries need both
+  @@index([playerId])
 }
 
-// ─────────────────────────────────────────────
-// PLAYER GAMEWEEK STATS
-// Per-match breakdown — one row per player per gameweek
-// Sourced from element-summary FPL endpoint by ETL job
-//
-// WHY THIS EXISTS:
-// Season totals hide form — a player can have 80 pts but scored 60 in GW1
-// Per-GW data lets ETL calculate rolling averages and hot/cold streaks
-// dcPoints tracks whether they hit the new defensive contribution threshold
-// ─────────────────────────────────────────────
 model PlayerGameweekStat {
-  id          Int    @id @default(autoincrement())
-  playerId    Int
-  player      Player @relation(fields: [playerId], references: [id])
-  gameweek    Int
+  id       Int    @id @default(autoincrement())
+  playerId Int
+  player   Player @relation(fields: [playerId], references: [id])
+  gameweek Int
 
-  minutes       Int     @default(0)
-  totalPoints   Int     @default(0)
-  goalsScored   Int     @default(0)
-  assists       Int     @default(0)
-  cleanSheet    Boolean @default(false)
-  goalsConceded Int     @default(0)
-  saves         Int     @default(0)
-  bonusPoints   Int     @default(0)
-  bps           Int     @default(0)
-
-  influence     Float @default(0)
-  creativity    Float @default(0)
-  threat        Float @default(0)
-  ictIndex      Float @default(0)
-
-  expectedGoals   Float @default(0)
-  expectedAssists Float @default(0)
-  expectedGI      Float @default(0)
-
-  // 2025/26 defensive contribution fields per match
-  cbit     Int @default(0) // clearances+blocks+interceptions+tackles (DEF scoring)
-  cbirt    Int @default(0) // CBIT + recoveries (MID/FWD scoring)
-  dcPoints Int @default(0) // 0 or 2 — did they hit the threshold this match?
-
-  selected     Int     @default(0) // ownership % that GW
-  transfersIn  Int     @default(0)
-  transfersOut Int     @default(0)
-  value        Int     @default(0) // price that GW in tenths
-  wasHome      Boolean @default(false)
-  opponentTeamId Int?
+  minutes     Int @default(0)
+  totalPoints Int @default(0)
+  cbit        Int @default(0)
+  cbirt       Int @default(0)
+  dcPoints    Int @default(0)
 
   @@unique([playerId, gameweek])
-  @@index([gameweek])  // ETL aggregates all players for a given GW
-  @@index([playerId])  // trend queries look up one player across GWs
+  @@index([gameweek])
+  @@index([playerId])
 }
 
-// ─────────────────────────────────────────────
-// FIXTURE
-// One row per match — stores FDR and scores
-// FDR (Fixture Difficulty Rating) 1-5: 1=very easy, 5=very hard
-//
-// WHY THIS EXISTS:
-// Our ingestion service uses fixtures to compute fixtureScore on each Player
-// Avg FDR next 3 GWs → lower score = easier run = better time to own/captain
-// Also used to detect DGW/BGW teams for TeamGameweekStatus
-// ─────────────────────────────────────────────
 model Fixture {
-  id         Int  @id  // FPL fixture ID
-  gameweek   Int
+  id       Int  @id
+  gameweek Int
 
   homeTeamId Int
   awayTeamId Int
@@ -345,182 +109,54 @@ model Fixture {
 
   homeTeamDifficulty Int
   awayTeamDifficulty Int
+  finished           Boolean @default(false)
 
-  homeTeamScore       Int?      // null = not played yet
-  awayTeamScore       Int?
-  kickoffTime         DateTime?
-  finished            Boolean   @default(false)
-  finishedProvisional Boolean   @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([gameweek])             // ingestion fetches all fixtures for current GW
-  @@index([homeTeamId, gameweek]) // fixtureScore calc looks up by team+GW
+  @@index([gameweek])
+  @@index([homeTeamId, gameweek])
   @@index([awayTeamId, gameweek])
 }
 
-// ─────────────────────────────────────────────
-// GAMEWEEK
-// One row per gameweek — 38 rows per season
-//
-// WHY THIS EXISTS:
-// deadlineTime drives the WebSocket alert service (fire X mins before deadline)
-// isCurrent/isNext tell the AI engine which GW to plan for
-// chipPlays: how many managers used each chip — useful context for Claude
-// dgwTeams/bgwTeams: pre-computed from fixtures for fast lookup
-// ─────────────────────────────────────────────
 model Gameweek {
-  // Using autoincrement + fplId instead of FPL id as PK
-  // because FPL can renumber GWs in edge cases (replayed matches etc.)
-  id   Int @id @default(autoincrement())
-  fplId Int @unique // FPL's event number — what you see in the API
+  id        Int     @id
+  name      String
+  isCurrent Boolean @default(false)
+  isNext    Boolean @default(false)
+  finished  Boolean @default(false)
 
-  name              String   // "Gameweek 33"
-  deadlineTime      DateTime
-  deadlineTimeEpoch Int
-
-  finished   Boolean @default(false)
-  isCurrent  Boolean @default(false)
-  isNext     Boolean @default(false)
-  isPrevious Boolean @default(false)
-
-  averageEntryScore Int?
-  highestScore      Int?
-  mostSelected      Int? // player id
-  mostTransferredIn Int? // player id
-  topElement        Int? // highest scoring player id
-
-  // e.g. { "wildcard": 245000, "bboost": 180000, "freehit": 92000 }
-  chipPlays Json?
-
-  // Pre-computed DGW/BGW metadata from fixtures endpoint
-  // e.g. dgwTeams: [1, 5, 10] — team IDs playing twice
-  // Used by AI engine to enrich transfer/chip recommendations
-  dgwTeams Json?    // array of team IDs playing twice
-  bgwTeams Json?    // array of team IDs with no fixture
-  isDgw    Boolean  @default(false)
-  isBgw    Boolean  @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([isCurrent]) // AI engine always needs the current GW fast
-  @@index([isNext])
+  @@index([isCurrent])
 }
 
-// ─────────────────────────────────────────────
-// CHIP RECOMMENDATION
-// Claude's chip advice, cached per manager per gameweek
-//
-// WHY THIS EXISTS:
-// Chip decisions (Wildcard, Bench Boost, Free Hit, Triple Captain) are
-// one-time-use and worth 30-50+ extra points if timed correctly.
-// Claude needs DGW/BGW context + available chips to advise correctly.
-// Caching means we don't call the API again if the same manager
-// checks the same GW twice — saves cost and latency.
-// ─────────────────────────────────────────────
-model ChipRecommendation {
-  id      Int @id @default(autoincrement())
-  teamId  Int // FPL manager team ID
-  gameweek Int
-
-  recommendedChip ChipType
-  reasoning       String  // Claude's explanation in plain English
-  confidence      Int     // 0-100
-
-  // Which chips the manager still has available
-  // e.g. { "wildcard": true, "freehit": false, "bboost": true, "tripleCaptain": true }
-  availableChips Json
-
-  // Context snapshot used to generate this recommendation
-  // Stored so we can debug why Claude recommended what it did
-  isCurrentDgw  Boolean @default(false)
-  isCurrentBgw  Boolean @default(false)
-  upcomingDgwGw Int?   // nearest upcoming DGW gameweek number
-  upcomingBgwGw Int?   // nearest upcoming BGW gameweek number
-
-  createdAt DateTime @default(now())
+model TeamGameweekStatus {
+  id           Int                @id @default(autoincrement())
+  teamId       Int
+  team         Team               @relation(fields: [teamId], references: [id])
+  gameweek     Int
+  status       GameweekStatusType @default(SINGLE)
+  fixtureCount Int                @default(1)
 
   @@unique([teamId, gameweek])
-  @@index([teamId]) // managers check their own recommendations
+  @@index([gameweek])
 }
 
-// ─────────────────────────────────────────────
-// TRANSFER ADVICE CACHE
-// Claude's transfer recommendations, cached per manager per gameweek
-//
-// WHY THIS EXISTS:
-// POST /transfer-advice sends ~2000 tokens to Claude on every call.
-// Same manager, same GW = same answer — no need to re-call the API.
-// Budget is stored as part of the cache key because different budgets
-// lead to different recommendations (can't afford Salah at £13.0m).
-//
-// Cache is invalidated implicitly — a new GW means a new row.
-// ─────────────────────────────────────────────
-model TransferAdviceCache {
-  id       Int @id @default(autoincrement())
-  teamId   Int
-  gameweek Int
-  budget   Float // in millions e.g. 2.5 = £2.5m available
-
-  // Full Claude JSON response stored as-is
-  // e.g. [{ "out": "Saka", "in": "Palmer", "reason": "...", "confidence": 85 }]
-  response Json
-
-  // Snapshot of what context was sent to Claude
-  // Useful for debugging recommendation quality
-  squadSnapshot Json? // the 15-player squad sent to Claude
-  topPicksSnapshot Json? // top 20 value picks sent to Claude
-
-  createdAt DateTime @default(now())
-
-  @@unique([teamId, gameweek]) // one cache entry per manager per GW
-  @@index([teamId])
-}
-
-// ─────────────────────────────────────────────
-// PLAYER TREND
-// Output of the nightly ETL job — one row per player per gameweek
-//
-// WHY THIS EXISTS:
-// Raw stats are too noisy for Claude to reason about directly.
-// The ETL job pre-aggregates PlayerGameweekStat into clean signals:
-//   - rollingAvgPts: 5-GW rolling average (removes outlier weeks)
-//   - formScore: our own weighted form calculation
-//   - fixtureScore: avg FDR next 3 GWs (already on Player but snapshotted here)
-//   - valueIndex: form / price ratio
-//   - dcAvgPerGame / dcHitRatePct: new 2025/26 defensive contribution signals
-//
-// These trends are what actually get injected into the Claude prompt.
-// Pre-aggregated = smaller prompt = faster + cheaper API calls.
-// ─────────────────────────────────────────────
 model PlayerTrend {
   id       Int @id @default(autoincrement())
   playerId Int
   gameweek Int
 
-  rollingAvgPts Float // average points over last 5 GWs
-  formScore     Float // our weighted form calculation
-  fixtureScore  Float // avg FDR next 3 GWs — snapshotted at ETL run time
-  valueIndex    Float // form / price — identifies cheap high-form players
-
-  // Defensive contribution aggregates (2025/26)
-  dcAvgPerGame  Float @default(0) // avg CBIT/CBIRT per game
-  dcHitRatePct  Float @default(0) // % of games they hit the bonus threshold
-
+  rollingAvgPts  Float
+  formScore      Float
+  valueIndex     Float
+  fixtureScore   Float
   ownershipPct   Float
-  priceRiseCount Int   @default(0) // how many times price rose this season
-
-  // DGW/BGW flags for this player's team in the upcoming GW
-  // Snapshotted at ETL time so Claude doesn't need to join TeamGameweekStatus
-  isDgwNext Boolean @default(false)
-  isBgwNext Boolean @default(false)
+  priceRiseCount Int   @default(0)
+  dcAvgPerGame   Float @default(0)
+  dcHitRatePct   Float @default(0)
+  isDgwNext      Boolean @default(false)
+  isBgwNext      Boolean @default(false)
 
   createdAt DateTime @default(now())
 
   @@unique([playerId, gameweek])
-  @@index([gameweek])      // AI engine fetches ALL trends for current GW
-  @@index([valueIndex])    // top picks sort by value
-  @@index([rollingAvgPts]) // alternative sort for in-form players
+  @@index([gameweek])
+  @@index([valueIndex])
 }

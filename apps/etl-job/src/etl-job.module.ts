@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { EtlJobController } from './etl-job.controller';
-import { EtlJobService } from './etl-job.service';
+import { ScheduleModule } from '@nestjs/schedule';
+import { EtlService } from './etl.service';
+import { PrismaService } from './prisma.service';
 
 @Module({
-  imports: [],
-  controllers: [EtlJobController],
-  providers: [EtlJobService],
+  imports: [ScheduleModule.forRoot()],
+  providers: [EtlService, PrismaService],
 })
 export class EtlJobModule {}

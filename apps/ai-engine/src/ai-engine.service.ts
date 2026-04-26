@@ -145,23 +145,27 @@ export class AiEngineService {
     }`;
 
     const message = await client.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
+      model: 'llama-3.3-70b-versatile',
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
 
     // 5. Parse response and compute accurate budget in code
-    const result = JSON.parse(message.choices[0].message.content);
+    const raw = message.choices[0].message.content;
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No valid JSON in AI response');
+    const result = JSON.parse(jsonMatch[0]);
+
+    const stripTeam = (name: string) => name.replace(/\s*\(.*?\)/, '').trim();
 
     let remainingBudget = bank;
     for (const t of result.transfers) {
-      const outPlayer = squadPlayers.find(
-        (p) => p.webName === t.transferOut.name,
-      );
-      const inPlayer = topPicks.find((p) => p.webName === t.transferIn.name);
+      const outName = stripTeam(t.transferOut.name);
+      const inName = stripTeam(t.transferIn.name);
+      const outPlayer = squadPlayers.find((p) => p.webName === outName);
+      const inPlayer = topPicks.find((p) => p.webName === inName);
       if (outPlayer && inPlayer) {
-        remainingBudget =
-          remainingBudget + outPlayer.nowCost / 10 - inPlayer.nowCost / 10;
+        remainingBudget = remainingBudget + outPlayer.nowCost / 10 - inPlayer.nowCost / 10;
       }
     }
     result.budgetAfterTransfers = Math.round(remainingBudget * 10) / 10;
