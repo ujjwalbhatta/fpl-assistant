@@ -15,7 +15,7 @@ export class IngestionService {
     private kafkaProducer: KafkaProducerService,
   ) {}
 
-  @Cron('0 * * * *')
+  @Cron('* * * * *')
   async pollFplApi() {
     this.logger.log('Polling FPL API...');
     const { data } = await axios.get(FPL_URL);

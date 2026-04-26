@@ -6,7 +6,14 @@
       "Bash(npx ts-node:*)",
       "Bash(npx prisma *)",
       "Bash(npx tsc *)",
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "Bash(docker exec fpl-assistant-redis-1 *)",
+      "Bash(curl *)",
+      "Bash(transport=polling 2>&1)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('transfers:', len\\(d['transfers']\\), '| captain:', d.get\\('captain', {}\\).get\\('name'\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('GK:', len\\(d['GK']\\), '| DEF:', len\\(d['DEF']\\), '| MID:', len\\(d['MID']\\), '| FWD:', len\\(d['FWD']\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('transfers:', len\\(d['transfers']\\), '| captain:', d.get\\('captain', {}\\).get\\('name'\\), '| budget:', d.get\\('budgetAfterTransfers'\\)\\)\")",
+      "Bash(python3 -c \"import sys; print\\('WebSocket:', 'OK' if 'sid' in sys.stdin.read\\(\\) else 'FAIL'\\)\")"
     ]
   }
 }

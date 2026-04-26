@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
-import { Injectable } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { Cache, CACHE_MANAGER } from '@nestjs/cache-manager';
 import { PrismaService } from './prisma.service';
 
 @Injectable()
@@ -11,9 +12,13 @@ export class AiEngineService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly http: HttpService,
+    @Inject(CACHE_MANAGER) private cache: Cache,
   ) {}
 
   async getTransferAdvice(teamId: number, gameweek: number) {
+    const cacheKey = `ai:${teamId}:${gameweek}`;
+    const cached = await this.cache.get(cacheKey);
+    if (cached) return cached;
     // 1. Call FPL API to get squad + bank + free transfers in parallel
     const [picksRes] = await Promise.all([
       firstValueFrom(
@@ -128,16 +133,19 @@ export class AiEngineService {
     - Do not transfer out any player marked KEEP
     - If no free transfers remain but a player is injured, recommend a -4pt hit only if gain clearly outweighs cost
 
+    Also suggest who to captain this week from the current squad based on form, PPG and totalPoints.
+
     Respond in this exact JSON format with no extra text:
     {
       "transfers": [
         { "transferOut": { "name": "player name", "reason": "why" }, "transferIn": { "name": "player name", "reason": "why" }, "isFree": true }
       ],
+      "captain": { "name": "player name", "reason": "why" },
       "reasoning": "overall summary"
     }`;
 
     const message = await client.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'llama-3.1-8b-instant',
       max_tokens: 2048,
       messages: [{ role: 'user', content: prompt }],
     });
@@ -158,6 +166,7 @@ export class AiEngineService {
     }
     result.budgetAfterTransfers = Math.round(remainingBudget * 10) / 10;
 
+    await this.cache.set(cacheKey, result, 3600);
     return result;
   }
 }

@@ -1,8 +1,10 @@
 import { NestFactory } from '@nestjs/core';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import { AlertServiceModule } from './alert-service.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AlertServiceModule);
-  await app.listen(process.env.port ?? 3000);
+  app.useWebSocketAdapter(new IoAdapter(app));
+  await app.listen(3003);
 }
 bootstrap();
