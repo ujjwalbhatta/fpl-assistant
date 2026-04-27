@@ -65,6 +65,7 @@ model Player {
 
   priceChanges  PriceHistory[]
   gameweekStats PlayerGameweekStat[]
+  trends        PlayerTrend[]
 
   @@index([position])
   @@index([status])
@@ -139,8 +140,9 @@ model TeamGameweekStatus {
 }
 
 model PlayerTrend {
-  id       Int @id @default(autoincrement())
+  id       Int    @id @default(autoincrement())
   playerId Int
+  player   Player @relation(fields: [playerId], references: [id])
   gameweek Int
 
   rollingAvgPts  Float

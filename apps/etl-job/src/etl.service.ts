@@ -8,7 +8,7 @@ export class EtlService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  @Cron('* * * * *')
+  @Cron('* 2 * * *')
   async runEtl() {
     this.logger.log('ETL job started');
 
